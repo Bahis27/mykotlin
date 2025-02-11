@@ -41,7 +41,7 @@ class User(
     )
     @field:ElementCollection(fetch = FetchType.EAGER)
     @field:Column(name = "role")
-    var roles: MutableSet<Role> = EnumSet.noneOf(Role::class.java)
+    @JvmField var roles: MutableSet<Role> = EnumSet.noneOf(Role::class.java)
 
 ) : NamedEntity(id, name), HasIdAndEmail {
 
