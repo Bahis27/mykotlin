@@ -1,5 +1,6 @@
 package my.kotlin.mykotlin.repository
 
+import my.kotlin.mykotlin.config.PASSWORD_ENCODER
 import my.kotlin.mykotlin.error.AppException
 import my.kotlin.mykotlin.model.User
 import org.springframework.data.jpa.repository.Query
@@ -12,7 +13,7 @@ interface UserRepository : BaseRepository<User> {
 
     @Transactional
     fun prepareAndSave(user: User): User = with(user) {
-//        password = PASSWORD_ENCODER.encode(password)
+        password = PASSWORD_ENCODER.encode(password)
         email = email.lowercase()
         save(this)
     }
