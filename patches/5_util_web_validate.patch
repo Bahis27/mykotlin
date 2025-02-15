@@ -1,0 +1,164 @@
+Subject: [PATCH] 5_util_web_validate
+---
+Index: src/main/kotlin/ru/javaops/topkotlin/util/JsonUtil.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/util/JsonUtil.kt b/src/main/kotlin/ru/javaops/topkotlin/util/JsonUtil.kt
+new file mode 100644
+--- /dev/null	(date 1698389464380)
++++ b/src/main/kotlin/ru/javaops/topkotlin/util/JsonUtil.kt	(date 1698389464380)
+@@ -0,0 +1,44 @@
++package ru.javaops.topkotlin.util
++
++import com.fasterxml.jackson.core.JsonProcessingException
++import com.fasterxml.jackson.core.type.TypeReference
++import com.fasterxml.jackson.databind.ObjectMapper
++import java.io.IOException
++import kotlin.reflect.KClass
++
++object JsonUtil {
++    private lateinit var mapper: ObjectMapper
++
++    fun setMapper(mapper: ObjectMapper) {
++        JsonUtil.mapper = mapper
++    }
++
++    fun <T : Any> readValues(json: String, clazz: KClass<T>): List<T> = try {
++        mapper.readerFor(clazz.java).readValues<T>(json).readAll()
++    } catch (e: IOException) {
++        throw IllegalArgumentException("Invalid read array from JSON:\n'$json'", e)
++    }
++
++
++    fun <T : Any> readValue(json: String, clazz: KClass<T>): T = try {
++        mapper.readValue(json, clazz.java)
++    } catch (e: IOException) {
++        throw IllegalArgumentException("Invalid read from JSON:\n'$json'", e)
++    }
++
++    fun <T> writeValue(obj: T): String = try {
++        mapper.writeValueAsString(obj)
++    } catch (e: JsonProcessingException) {
++        throw IllegalStateException("Invalid write to JSON:\n'$obj'", e)
++    }
++
++    fun <T> writeAdditionProps(obj: T, addName: String, addValue: Any): String =
++        writeAdditionProps(obj, mapOf(addName to addValue))
++
++    fun <T> writeAdditionProps(obj: T, addProps: Map<String, Any>): String =
++        mapper.convertValue(obj, object : TypeReference<MutableMap<String, Any>>() {})
++            .run {
++                putAll(addProps)
++                writeValue(this)
++            }
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/util/UsersUtil.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/util/UsersUtil.kt b/src/main/kotlin/ru/javaops/topkotlin/util/UsersUtil.kt
+new file mode 100644
+--- /dev/null	(date 1698389464384)
++++ b/src/main/kotlin/ru/javaops/topkotlin/util/UsersUtil.kt	(date 1698389464384)
+@@ -0,0 +1,16 @@
++package ru.javaops.topkotlin.util
++
++import ru.javaops.topkotlin.model.Role
++import ru.javaops.topkotlin.model.User
++import ru.javaops.topkotlin.to.UserTo
++
++object UsersUtil {
++    fun createNewFromTo(userTo: UserTo) = User(null, userTo.name, userTo.email.lowercase(), userTo.password, Role.USER)
++
++    fun updateFromTo(user: User, userTo: UserTo): User = with(user) {
++        name = userTo.name
++        email = userTo.email.lowercase()
++        password = userTo.password
++        this
++    }
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/web/user/UniqueMailValidator.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/web/user/UniqueMailValidator.kt b/src/main/kotlin/ru/javaops/topkotlin/web/user/UniqueMailValidator.kt
+new file mode 100644
+--- /dev/null	(date 1698389464389)
++++ b/src/main/kotlin/ru/javaops/topkotlin/web/user/UniqueMailValidator.kt	(date 1698389464389)
+@@ -0,0 +1,42 @@
++package ru.javaops.topkotlin.web.user
++
++import jakarta.servlet.http.HttpServletRequest
++import org.springframework.stereotype.Component
++import org.springframework.validation.Errors
++import org.springframework.validation.Validator
++import ru.javaops.topkotlin.HasIdAndEmail
++import ru.javaops.topkotlin.model.User
++import ru.javaops.topkotlin.repository.UserRepository
++import ru.javaops.topkotlin.web.authUser
++
++@Component
++class UniqueMailValidator(
++    private val repository: UserRepository,
++    private val request: HttpServletRequest
++
++) : Validator {
++    override fun supports(clazz: Class<*>) = HasIdAndEmail::class.java.isAssignableFrom(clazz)
++
++    override fun validate(target: Any, errors: Errors) {
++        val user: HasIdAndEmail = target as HasIdAndEmail
++        if (user.email.isBlank()) return
++        repository.findByEmailIgnoreCase(user.email)?.also { dbUser: User ->
++            if (request.method == "PUT") {  // UPDATE
++                val dbId: Int = dbUser.id()
++
++                // it is ok, if update ourselves
++                if (user.id != null && dbId == user.id) return@also
++
++                // Workaround for update with user.id=null in request body
++                // ValidationUtil.assureIdConsistent called after this validation
++                val requestURI = request.requestURI
++                if (requestURI.endsWith("/$dbId") || dbId == authUser().id() && requestURI.contains("/profile")) return@also
++            }
++            errors.rejectValue("email", "", EXCEPTION_DUPLICATE_EMAIL)
++        }
++    }
++
++    companion object {
++        const val EXCEPTION_DUPLICATE_EMAIL = "User with this email already exists"
++    }
++}
+Index: src/main/kotlin/ru/javaops/topkotlin/web/RestValidation.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/web/RestValidation.kt b/src/main/kotlin/ru/javaops/topkotlin/web/RestValidation.kt
+new file mode 100644
+--- /dev/null	(date 1698389464394)
++++ b/src/main/kotlin/ru/javaops/topkotlin/web/RestValidation.kt	(date 1698389464394)
+@@ -0,0 +1,17 @@
++package ru.javaops.topkotlin.web
++
++import ru.javaops.topkotlin.HasId
++import ru.javaops.topkotlin.error.IllegalRequestDataException
++
++object RestValidation {
++    fun checkNew(bean: HasId) {
++        if (!bean.isNew()) throw IllegalRequestDataException("${bean.javaClass.simpleName} must be new (id=null)")
++    }
++
++    //  Conservative when you reply, but accept liberally (http://stackoverflow.com/a/32728226/548473)
++    fun assureIdConsistent(bean: HasId, id: Int) = when {
++        bean.isNew() -> bean.id = id
++        bean.id() != id -> throw IllegalRequestDataException("${bean.javaClass.simpleName} must has id=$id")
++        else -> {}
++    }
++}
+\ No newline at end of file

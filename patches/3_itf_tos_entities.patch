@@ -1,0 +1,335 @@
+Subject: [PATCH] 3_itf_tos_entities
+---
+Index: src/main/kotlin/ru/javaops/topkotlin/BaseInterfaces.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/BaseInterfaces.kt b/src/main/kotlin/ru/javaops/topkotlin/BaseInterfaces.kt
+new file mode 100644
+--- /dev/null	(date 1701184031589)
++++ b/src/main/kotlin/ru/javaops/topkotlin/BaseInterfaces.kt	(date 1701184031589)
+@@ -0,0 +1,25 @@
++package ru.javaops.topkotlin
++
++import com.fasterxml.jackson.annotation.JsonIgnore
++import io.swagger.v3.oas.annotations.media.Schema
++import org.springframework.util.Assert
++
++
++interface HasId {
++    @get:Schema(accessMode = Schema.AccessMode.READ_ONLY) // https://stackoverflow.com/a/28025008/548473
++    var id: Int?
++
++    @JsonIgnore
++    fun isNew() = id == null
++
++    // doesn't work for hibernate lazy proxy
++    fun id(): Int {
++        Assert.notNull(id, "Entity must has id")
++        return id!!
++    }
++}
++
++
++interface HasIdAndEmail : HasId {
++    var email: String
++}
+\ No newline at end of file
+Index: build.gradle.kts
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/build.gradle.kts b/build.gradle.kts
+--- a/build.gradle.kts	(revision 02486041b2bbf301f3092dcbd595ca61ab801c0a)
++++ b/build.gradle.kts	(date 1701184031550)
+@@ -21,11 +21,13 @@
+ }
+ 
+ val jsoupVersion = "1.17.1"
++val springdocVersion = "2.2.0"
+ dependencies {
+     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+     implementation("org.springframework.boot:spring-boot-starter-security")
+     implementation("org.springframework.boot:spring-boot-starter-web")
+     implementation("org.springframework.boot:spring-boot-starter-validation")
++    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
+     implementation("org.jsoup:jsoup:$jsoupVersion")
+     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+     implementation("org.jetbrains.kotlin:kotlin-reflect")
+Index: src/main/kotlin/ru/javaops/topkotlin/model/BaseEntity.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/model/BaseEntity.kt b/src/main/kotlin/ru/javaops/topkotlin/model/BaseEntity.kt
+new file mode 100644
+--- /dev/null	(date 1701184031564)
++++ b/src/main/kotlin/ru/javaops/topkotlin/model/BaseEntity.kt	(date 1701184031564)
+@@ -0,0 +1,25 @@
++package ru.javaops.topkotlin.model
++
++import jakarta.persistence.*
++import org.springframework.data.util.ProxyUtils
++import ru.javaops.topkotlin.HasId
++
++@MappedSuperclass //  https://stackoverflow.com/a/6084701/548473
++@Access(AccessType.FIELD)
++abstract class BaseEntity(
++    @field:Id
++    @field:GeneratedValue(strategy = GenerationType.IDENTITY)
++    override var id: Int? = null
++
++) : HasId {
++    //    https://stackoverflow.com/questions/1638723
++    override fun equals(other: Any?): Boolean {
++        if (this === other) return true
++        if (other == null || javaClass != ProxyUtils.getUserClass(other)) return false
++        val that = other as BaseEntity
++        return id != null && id == that.id
++    }
++
++    override fun hashCode() = id ?: 0
++    override fun toString() = "${javaClass.simpleName}:$id"
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/model/NamedEntity.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/model/NamedEntity.kt b/src/main/kotlin/ru/javaops/topkotlin/model/NamedEntity.kt
+new file mode 100644
+--- /dev/null	(date 1701184031569)
++++ b/src/main/kotlin/ru/javaops/topkotlin/model/NamedEntity.kt	(date 1701184031569)
+@@ -0,0 +1,21 @@
++package ru.javaops.topkotlin.model
++
++import jakarta.persistence.Column
++import jakarta.persistence.MappedSuperclass
++import jakarta.validation.constraints.NotBlank
++import jakarta.validation.constraints.Size
++import ru.javaops.topkotlin.validation.NoHtml
++
++@MappedSuperclass
++abstract class NamedEntity protected constructor(
++    id: Int? = null,
++
++    @field:NotBlank
++    @field:Size(min = 2, max = 128)
++    @field:NoHtml
++    @field:Column(name = "name", nullable = false)
++    var name: String = ""
++
++) : BaseEntity(id) {
++    override fun toString() = "${super.toString()}[$name]"
++}
+\ No newline at end of file
+Index: src/main/resources/data.sql
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/resources/data.sql b/src/main/resources/data.sql
+new file mode 100644
+--- /dev/null	(date 1701184071238)
++++ b/src/main/resources/data.sql	(date 1701184071238)
+@@ -0,0 +1,9 @@
++INSERT INTO USERS (name, email, password)
++VALUES ('User', 'user@yandex.ru', '{noop}password'),
++       ('Admin', 'admin@gmail.com', '{noop}admin'),
++       ('Guest', 'guest@gmail.com', '{noop}guest');
++
++INSERT INTO USER_ROLE (role, user_id)
++VALUES ('USER', 1),
++       ('ADMIN', 2),
++       ('USER', 2);
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/model/Role.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/model/Role.kt b/src/main/kotlin/ru/javaops/topkotlin/model/Role.kt
+new file mode 100644
+--- /dev/null	(date 1701184031573)
++++ b/src/main/kotlin/ru/javaops/topkotlin/model/Role.kt	(date 1701184031573)
+@@ -0,0 +1,11 @@
++package ru.javaops.topkotlin.model
++
++import org.springframework.security.core.GrantedAuthority
++
++enum class Role : GrantedAuthority {
++    USER,
++    ADMIN;
++
++    //   https://stackoverflow.com/a/19542316/548473
++    override fun getAuthority(): String = "ROLE_$name";
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/model/User.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/model/User.kt b/src/main/kotlin/ru/javaops/topkotlin/model/User.kt
+new file mode 100644
+--- /dev/null	(date 1701184144455)
++++ b/src/main/kotlin/ru/javaops/topkotlin/model/User.kt	(date 1701184144455)
+@@ -0,0 +1,83 @@
++package ru.javaops.topkotlin.model
++
++import com.fasterxml.jackson.annotation.JsonProperty
++import jakarta.persistence.*
++import jakarta.validation.constraints.NotBlank
++import jakarta.validation.constraints.Size
++import org.hibernate.annotations.OnDelete
++import org.hibernate.annotations.OnDeleteAction
++import ru.javaops.topkotlin.HasIdAndEmail
++import ru.javaops.topkotlin.validation.NoHtml
++import java.util.*
++
++@Entity
++@Table(name = "users")
++class User(
++    id: Int?,
++    name: String = "",
++
++    @field:NotBlank
++    @field:Size(min = 2, max = 128)
++    @field:NoHtml
++    @field:Column(name = "email", nullable = false, unique = true)
++    override var email: String = "",
++
++    @field:NotBlank
++    @field:Size(max = 128)
++    @field:Column(name = "password", nullable = false)
++    @field:JsonProperty(access = JsonProperty.Access.WRITE_ONLY) // https://stackoverflow.com/a/12505165/548473
++    var password: String = "",
++
++    @field:Column(name = "enabled", nullable = false, columnDefinition = "bool default true")
++    var enabled: Boolean = true,
++
++    @field:Column(name = "registered", nullable = false, columnDefinition = "timestamp default now()", updatable = false)
++    @field:JsonProperty(access = JsonProperty.Access.READ_ONLY)
++    val registered: Date = Date(),
++
++    @field:Enumerated(EnumType.STRING)
++    @field:CollectionTable(
++        name = "user_role",
++        joinColumns = [JoinColumn(name = "user_id")],
++        uniqueConstraints = [UniqueConstraint(columnNames = ["user_id", "role"], name = "uk_user_role")]
++    )
++    @field:ElementCollection(fetch = FetchType.EAGER)
++    @field:Column(name = "role")
++    var roles: MutableSet<Role> = EnumSet.noneOf(Role::class.java)
++
++) : NamedEntity(id, name), HasIdAndEmail {
++
++    constructor(
++        id: Int?,
++        name: String,
++        email: String,
++        password: String,
++        vararg roles: Role
++    ) : this(
++        id = id,
++        name = name,
++        email = email,
++        password = password,
++        enabled = true,
++        registered = Date(),
++        roles = EnumSet.copyOf(setOf(*roles))
++    )
++
++    fun copy(
++        id: Int? = this.id,
++        name: String = this.name,
++        email: String = this.email,
++        password: String = this.password,
++        enabled: Boolean = this.enabled,
++        registered: Date = this.registered,
++        roles: MutableSet<Role> = this.roles
++    ) = User(id, name, email, password, enabled, registered, roles)
++
++    fun setRoles(roles: Collection<Role>) {
++        this.roles = if (roles.isEmpty()) EnumSet.noneOf(Role::class.java) else EnumSet.copyOf(roles)
++    }
++
++    fun hasRole(role: Role) = roles.contains(role)
++
++    override fun toString() = "User:$id[$email]"
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/to/BaseTos.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/to/BaseTos.kt b/src/main/kotlin/ru/javaops/topkotlin/to/BaseTos.kt
+new file mode 100644
+--- /dev/null	(date 1701184031581)
++++ b/src/main/kotlin/ru/javaops/topkotlin/to/BaseTos.kt	(date 1701184031581)
+@@ -0,0 +1,25 @@
++package ru.javaops.topkotlin.to
++
++import jakarta.validation.constraints.NotBlank
++import jakarta.validation.constraints.Size
++import ru.javaops.topkotlin.HasId
++import ru.javaops.topkotlin.validation.NoHtml
++
++abstract class BaseTo protected constructor(
++    override var id: Int? = null
++
++) : HasId {
++    override fun toString() = "${javaClass.simpleName}:$id"
++}
++
++open class NamedTo(
++    id: Int? = null,
++
++    @field:NoHtml
++    @field:Size(min = 2, max = 128)
++    @field:NotBlank
++    open var name: String = ""
++
++) : BaseTo(id) {
++    override fun toString() = "${super.toString()}[$name]"
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/to/UserTo.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/to/UserTo.kt b/src/main/kotlin/ru/javaops/topkotlin/to/UserTo.kt
+new file mode 100644
+--- /dev/null	(date 1701184031584)
++++ b/src/main/kotlin/ru/javaops/topkotlin/to/UserTo.kt	(date 1701184031584)
+@@ -0,0 +1,25 @@
++package ru.javaops.topkotlin.to
++
++import jakarta.validation.constraints.Email
++import jakarta.validation.constraints.NotBlank
++import jakarta.validation.constraints.Size
++import ru.javaops.topkotlin.HasIdAndEmail
++import ru.javaops.topkotlin.validation.NoHtml
++
++data class UserTo(
++    override var id: Int? = null,
++    override var name: String = "",
++
++    @field:NotBlank
++    @field:Size(max = 128)
++    @field:Email
++    @field:NoHtml // https://stackoverflow.com/questions/17480809
++    override var email: String = "",
++
++    @field:NotBlank
++    @field:Size(min = 5, max = 32)
++    var password: String = ""
++
++) : NamedTo(id, name), HasIdAndEmail {
++    override fun toString() = "UserTo:$id[$email]";
++}

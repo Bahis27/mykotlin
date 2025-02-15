@@ -1,0 +1,185 @@
+Subject: [PATCH] 2_resources_error_validation
+---
+Index: src/main/resources/application.properties
+===================================================================
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+deleted file mode 100644
+--- a/src/main/resources/application.properties	(revision b2e841d5a09e26d4d65061c7aa65e470259109c0)
++++ /dev/null	(revision b2e841d5a09e26d4d65061c7aa65e470259109c0)
+@@ -1,1 +0,0 @@
+-
+Index: src/main/kotlin/ru/javaops/topkotlin/error/ErrorType.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/error/ErrorType.kt b/src/main/kotlin/ru/javaops/topkotlin/error/ErrorType.kt
+new file mode 100644
+--- /dev/null	(date 1701183604511)
++++ b/src/main/kotlin/ru/javaops/topkotlin/error/ErrorType.kt	(date 1701183604511)
+@@ -0,0 +1,14 @@
++package ru.javaops.topkotlin.error
++
++import org.springframework.http.HttpStatus
++
++enum class ErrorType(val title: String, val status: HttpStatus) {
++    APP_ERROR("Application error", HttpStatus.INTERNAL_SERVER_ERROR),
++    BAD_DATA("Wrong data", HttpStatus.UNPROCESSABLE_ENTITY),
++    BAD_REQUEST("Bad request", HttpStatus.UNPROCESSABLE_ENTITY),
++    DATA_CONFLICT("DataBase conflict", HttpStatus.CONFLICT),
++    NOT_FOUND("Resource not found", HttpStatus.NOT_FOUND),
++    AUTH_ERROR("Authorization error", HttpStatus.FORBIDDEN),
++    UNAUTHORIZED("Request unauthorized", HttpStatus.UNAUTHORIZED),
++    FORBIDDEN("Request forbidden", HttpStatus.FORBIDDEN)
++}
+Index: src/main/kotlin/ru/javaops/topkotlin/validation/NoHtml.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/validation/NoHtml.kt b/src/main/kotlin/ru/javaops/topkotlin/validation/NoHtml.kt
+new file mode 100644
+--- /dev/null	(date 1701183604515)
++++ b/src/main/kotlin/ru/javaops/topkotlin/validation/NoHtml.kt	(date 1701183604515)
+@@ -0,0 +1,24 @@
++package ru.javaops.topkotlin.validation
++
++import jakarta.validation.Constraint
++import jakarta.validation.ConstraintValidator
++import jakarta.validation.ConstraintValidatorContext
++import jakarta.validation.Payload
++import org.jsoup.Jsoup
++import org.jsoup.safety.Safelist
++import kotlin.reflect.KClass
++
++@MustBeDocumented
++@Constraint(validatedBy = [NoHtmlValidator::class])
++@Target(AnnotationTarget.FIELD, AnnotationTarget.VALUE_PARAMETER, AnnotationTarget.TYPE_PARAMETER)
++@Retention(AnnotationRetention.RUNTIME)
++annotation class NoHtml(
++    val message: String = "{error.noHtml}",
++    val groups: Array<KClass<*>> = [],
++    val payload: Array<KClass<out Payload>> = []
++)
++
++class NoHtmlValidator : ConstraintValidator<NoHtml, String?> {
++    override fun isValid(value: String?, ctx: ConstraintValidatorContext) =
++        value == null || Jsoup.isValid(value, Safelist.none())
++}
+Index: src/main/resources/application.yaml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/resources/application.yaml b/src/main/resources/application.yaml
+new file mode 100644
+--- /dev/null	(date 1701183604526)
++++ b/src/main/resources/application.yaml	(date 1701183604526)
+@@ -0,0 +1,56 @@
++#  https://docs.spring.io/spring-boot/docs/current/reference/html/common-application-properties.html
++spring:
++  jpa:
++    show-sql: true
++    open-in-view: false
++    # https://stackoverflow.com/a/67678945/548473
++    defer-datasource-initialization: true
++    hibernate:
++      ddl-auto: create
++    properties:
++      #  http://docs.jboss.org/hibernate/orm/5.3/userguide/html_single/Hibernate_User_Guide.html#configurations
++      hibernate:
++        format_sql: true
++        default_batch_fetch_size: 20
++        # https://stackoverflow.com/questions/21257819/what-is-the-difference-between-hibernate-jdbc-fetch-size-and-hibernate-jdbc-batc
++        jdbc.batch_size: 20
++  datasource:
++    # ImMemory
++    url: jdbc:h2:mem:topkotlin
++    #    tcp: jdbc:h2:tcp://localhost:9092/mem:topkotlin
++    # Absolute path
++    #    url: jdbc:h2:C:/projects/topkotlin/db/topkotlin
++    #    tcp: jdbc:h2:tcp://localhost:9092/C:/projects/topkotlin/db/topkotlin
++    # Relative path form current dir
++    #    url: jdbc:h2:./db/topkotlin
++    # Relative path from home
++    #    url: jdbc:h2:~/topkotlin
++    #    tcp: jdbc:h2:tcp://localhost:9092/~/topkotlin
++    username: sa
++    password:
++
++# Jackson Serialization Issue Resolver
++  jackson.visibility:
++    field: any
++    getter: none
++    setter: none
++    is-getter: none
++
++  # https://docs.spring.io/spring-boot/docs/current/reference/html/appendix-application-properties.html#common-application-properties-cache
++  cache:
++    cache-names: users
++    caffeine.spec: maximumSize=5000,expireAfterAccess=60s
++
++logging:
++  level:
++    root: WARN
++    ru.javaops.topkotlin: DEBUG
++    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: DEBUG
++
++server.servlet:
++  encoding:
++    charset: UTF-8 # Charset of HTTP requests and responses. Added to the "Content-Type" header if not set explicitly
++    enabled: true # Enable http encoding support
++    force: true
++
++springdoc.swagger-ui.path: /
+Index: build.gradle.kts
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/build.gradle.kts b/build.gradle.kts
+--- a/build.gradle.kts	(revision b2e841d5a09e26d4d65061c7aa65e470259109c0)
++++ b/build.gradle.kts	(date 1701183604500)
+@@ -20,10 +20,13 @@
+     mavenCentral()
+ }
+ 
++val jsoupVersion = "1.17.1"
+ dependencies {
+     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+     implementation("org.springframework.boot:spring-boot-starter-security")
+     implementation("org.springframework.boot:spring-boot-starter-web")
++    implementation("org.springframework.boot:spring-boot-starter-validation")
++    implementation("org.jsoup:jsoup:$jsoupVersion")
+     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+     implementation("org.jetbrains.kotlin:kotlin-reflect")
+     runtimeOnly("com.h2database:h2")
+Index: src/test/resources/application-test.yaml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/test/resources/application-test.yaml b/src/test/resources/application-test.yaml
+new file mode 100644
+--- /dev/null	(date 1701183604537)
++++ b/src/test/resources/application-test.yaml	(date 1701183604537)
+@@ -0,0 +1,1 @@
++spring.cache.type: none
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/error/AppExceptions.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/error/AppExceptions.kt b/src/main/kotlin/ru/javaops/topkotlin/error/AppExceptions.kt
+new file mode 100644
+--- /dev/null	(date 1701183604506)
++++ b/src/main/kotlin/ru/javaops/topkotlin/error/AppExceptions.kt	(date 1701183604506)
+@@ -0,0 +1,6 @@
++package ru.javaops.topkotlin.error
++
++open class AppException(message: String) : RuntimeException(message)
++class DataConflictException(msg: String) : AppException(msg)
++class IllegalRequestDataException(msg: String) : AppException(msg)
++class NotFoundException(msg: String) : AppException(msg)
+\ No newline at end of file

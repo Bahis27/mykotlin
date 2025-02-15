@@ -1,0 +1,424 @@
+Subject: [PATCH] 7_config_extensions
+---
+Index: src/main/kotlin/ru/javaops/topkotlin/config/AppConfig.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/config/AppConfig.kt b/src/main/kotlin/ru/javaops/topkotlin/config/AppConfig.kt
+new file mode 100644
+--- /dev/null	(date 1701184533887)
++++ b/src/main/kotlin/ru/javaops/topkotlin/config/AppConfig.kt	(date 1701184533887)
+@@ -0,0 +1,43 @@
++package ru.javaops.topkotlin.config
++
++import com.fasterxml.jackson.annotation.JsonAnyGetter
++import com.fasterxml.jackson.annotation.JsonAutoDetect
++import com.fasterxml.jackson.databind.ObjectMapper
++import com.fasterxml.jackson.datatype.hibernate5.jakarta.Hibernate5JakartaModule
++import io.github.oshai.kotlinlogging.KotlinLogging
++import org.h2.tools.Server
++import org.springframework.beans.factory.annotation.Autowired
++import org.springframework.cache.annotation.EnableCaching
++import org.springframework.context.annotation.Bean
++import org.springframework.context.annotation.Configuration
++import org.springframework.context.annotation.Profile
++import org.springframework.http.ProblemDetail
++import ru.javaops.topkotlin.util.JsonUtil
++
++@Configuration
++@EnableCaching
++class AppConfig {
++    private val log = KotlinLogging.logger {}
++
++    @Profile("!test")
++    @Bean(initMethod = "start", destroyMethod = "stop")
++    fun h2Server(): Server {
++        log.info { "Start H2 TCP server" }
++        return Server.createTcpServer("-tcp", "-tcpAllowOthers", "-tcpPort", "9092")
++    }
++
++    //   https://stackoverflow.com/a/74630129/548473
++    @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.ANY)
++    internal interface MixIn {
++        @get:JsonAnyGetter
++        val properties: Map<String, Any>
++    }
++
++    @Autowired
++    fun configureAndStoreObjectMapper(objectMapper: ObjectMapper) {
++        objectMapper.registerModule(Hibernate5JakartaModule())
++        // ErrorHandling: https://stackoverflow.com/questions/7421474/548473
++        objectMapper.addMixIn(ProblemDetail::class.java, MixIn::class.java)
++        JsonUtil.setMapper(objectMapper)
++    }
++}
+Index: src/main/kotlin/ru/javaops/topkotlin/config/ConfigExtensions.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/config/ConfigExtensions.kt b/src/main/kotlin/ru/javaops/topkotlin/config/ConfigExtensions.kt
+new file mode 100644
+--- /dev/null	(date 1701184533893)
++++ b/src/main/kotlin/ru/javaops/topkotlin/config/ConfigExtensions.kt	(date 1701184533893)
+@@ -0,0 +1,22 @@
++package ru.javaops.topkotlin.config
++
++import org.springframework.context.MessageSource
++import org.springframework.context.i18n.LocaleContextHolder
++import org.springframework.validation.BindingResult
++import org.springframework.validation.ObjectError
++
++fun BindingResult.getErrorMap(messageSource: MessageSource): Map<String, String?> {
++    val invalidParams = linkedMapOf<String, String?>()
++    for (error in globalErrors) {
++        invalidParams[error.objectName] = error.getErrorMessage(messageSource)
++    }
++    for (error in fieldErrors) {
++        invalidParams[error.field] = error.getErrorMessage(messageSource)
++    }
++    return invalidParams
++}
++
++fun ObjectError.getErrorMessage(messageSource: MessageSource) = when (code) {
++    null -> defaultMessage
++    else -> messageSource.getMessage(code!!, arguments, defaultMessage, LocaleContextHolder.getLocale())
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/config/OpenApiConfig.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/config/OpenApiConfig.kt b/src/main/kotlin/ru/javaops/topkotlin/config/OpenApiConfig.kt
+new file mode 100644
+--- /dev/null	(date 1701184533899)
++++ b/src/main/kotlin/ru/javaops/topkotlin/config/OpenApiConfig.kt	(date 1701184533899)
+@@ -0,0 +1,34 @@
++package ru.javaops.topkotlin.config
++
++import io.swagger.v3.oas.annotations.OpenAPIDefinition
++import io.swagger.v3.oas.annotations.enums.SecuritySchemeType
++import io.swagger.v3.oas.annotations.info.Contact
++import io.swagger.v3.oas.annotations.info.Info
++import io.swagger.v3.oas.annotations.security.SecurityRequirement
++import io.swagger.v3.oas.annotations.security.SecurityScheme
++import org.springdoc.core.models.GroupedOpenApi
++import org.springframework.context.annotation.Bean
++import org.springframework.context.annotation.Configuration
++
++@Configuration //https://sabljakovich.medium.com/adding-basic-auth-authorization-option-to-openapi-swagger-documentation-java-spring-95abbede27e9
++@SecurityScheme(name = "basicAuth", type = SecuritySchemeType.HTTP, scheme = "basic")
++@OpenAPIDefinition(
++    info = Info(
++        title = "REST API documentation", version = "1.0",
++        description = """
++Приложение по <a href='https://javaops.ru/view/topkotlin'>курсу TopKotlin</a>
++<p><b>Тестовые креденшелы:</b><br>
++- user@yandex.ru / password<br>
++- admin@gmail.com / admin<br>
++- guest@gmail.com / guest</p>
++""",
++        contact = Contact(url = "https://javaops.ru/#contacts", name = "Grigory Kislin", email = "admin@javaops.ru")
++    ), security = [SecurityRequirement(name = "basicAuth")]
++)
++class OpenApiConfig {
++    @Bean
++    fun api(): GroupedOpenApi = GroupedOpenApi.builder()
++        .group("REST API")
++        .pathsToMatch("/api/**")
++        .build()
++}
+Index: src/main/kotlin/ru/javaops/topkotlin/config/RestAuthenticationEntryPoint.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/config/RestAuthenticationEntryPoint.kt b/src/main/kotlin/ru/javaops/topkotlin/config/RestAuthenticationEntryPoint.kt
+new file mode 100644
+--- /dev/null	(date 1701184533904)
++++ b/src/main/kotlin/ru/javaops/topkotlin/config/RestAuthenticationEntryPoint.kt	(date 1701184533904)
+@@ -0,0 +1,20 @@
++package ru.javaops.topkotlin.config
++
++import jakarta.servlet.http.HttpServletRequest
++import jakarta.servlet.http.HttpServletResponse
++import org.springframework.beans.factory.annotation.Qualifier
++import org.springframework.security.core.AuthenticationException
++import org.springframework.security.web.AuthenticationEntryPoint
++import org.springframework.stereotype.Component
++import org.springframework.web.servlet.HandlerExceptionResolver
++
++@Component
++class RestAuthenticationEntryPoint(
++    @Qualifier("handlerExceptionResolver")
++    private val resolver: HandlerExceptionResolver
++
++) : AuthenticationEntryPoint {
++    override fun commence(request: HttpServletRequest, response: HttpServletResponse, authException: AuthenticationException) {
++        resolver.resolveException(request, response, null, authException)
++    }
++}
+Index: build.gradle.kts
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/build.gradle.kts b/build.gradle.kts
+--- a/build.gradle.kts	(revision 8175f3452308317f340ce4711b66194f2000f834)
++++ b/build.gradle.kts	(date 1701184590794)
+@@ -23,17 +23,19 @@
+ val jsoupVersion = "1.17.1"
+ val springdocVersion = "2.2.0"
+ val kotlinLoggingVersion = "5.1.1"
++val jacksonDatatypeVersion = "2.16.0"
+ dependencies {
+     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+     implementation("org.springframework.boot:spring-boot-starter-security")
+     implementation("org.springframework.boot:spring-boot-starter-web")
+     implementation("org.springframework.boot:spring-boot-starter-validation")
+     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
++    implementation("com.fasterxml.jackson.datatype:jackson-datatype-hibernate5-jakarta:$jacksonDatatypeVersion")
++    implementation("com.h2database:h2")
+     implementation("org.jsoup:jsoup:$jsoupVersion")
+     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+     implementation("org.jetbrains.kotlin:kotlin-reflect")
+     implementation("io.github.oshai:kotlin-logging-jvm:$kotlinLoggingVersion")
+-    runtimeOnly("com.h2database:h2")
+     testImplementation("org.springframework.boot:spring-boot-starter-test")
+     testImplementation("org.springframework.security:spring-security-test")
+ }
+Index: src/main/kotlin/ru/javaops/topkotlin/config/RestExceptionHandler.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/config/RestExceptionHandler.kt b/src/main/kotlin/ru/javaops/topkotlin/config/RestExceptionHandler.kt
+new file mode 100644
+--- /dev/null	(date 1701184533911)
++++ b/src/main/kotlin/ru/javaops/topkotlin/config/RestExceptionHandler.kt	(date 1701184533911)
+@@ -0,0 +1,110 @@
++package ru.javaops.topkotlin.config
++
++import io.github.oshai.kotlinlogging.KotlinLogging
++import jakarta.persistence.EntityNotFoundException
++import jakarta.servlet.http.HttpServletRequest
++import jakarta.validation.ValidationException
++import org.springframework.context.MessageSource
++import org.springframework.context.i18n.LocaleContextHolder
++import org.springframework.dao.DataIntegrityViolationException
++import org.springframework.http.ProblemDetail
++import org.springframework.security.core.AuthenticationException
++import org.springframework.security.web.firewall.RequestRejectedException
++import org.springframework.validation.BindException
++import org.springframework.web.ErrorResponse
++import org.springframework.web.HttpRequestMethodNotSupportedException
++import org.springframework.web.bind.ServletRequestBindingException
++import org.springframework.web.bind.annotation.ExceptionHandler
++import org.springframework.web.bind.annotation.RestControllerAdvice
++import org.springframework.web.servlet.NoHandlerFoundException
++import ru.javaops.topkotlin.error.*
++import ru.javaops.topkotlin.error.ErrorType.*
++import ru.javaops.topkotlin.getRootCause
++import java.io.FileNotFoundException
++import java.net.URI
++import java.nio.file.AccessDeniedException
++import java.util.*
++import kotlin.reflect.KClass
++import kotlin.reflect.full.isSubclassOf
++
++const val ERR_PFX = "ERR#"
++
++// more specific first
++private val HTTP_STATUS_MAP: Map<KClass<out Exception>, ErrorType> = linkedMapOf(
++    NotFoundException::class to NOT_FOUND,
++    AuthenticationException::class to UNAUTHORIZED,
++    FileNotFoundException::class to NOT_FOUND,
++    NoHandlerFoundException::class to NOT_FOUND,
++    DataConflictException::class to DATA_CONFLICT,
++    IllegalRequestDataException::class to BAD_REQUEST,
++    AppException::class to APP_ERROR,
++    UnsupportedOperationException::class to APP_ERROR,
++    EntityNotFoundException::class to DATA_CONFLICT,
++    DataIntegrityViolationException::class to DATA_CONFLICT,
++    IllegalArgumentException::class to BAD_DATA,
++    ValidationException::class to BAD_REQUEST,
++    HttpRequestMethodNotSupportedException::class to BAD_REQUEST,
++    ServletRequestBindingException::class to BAD_REQUEST,
++    RequestRejectedException::class to BAD_REQUEST,
++    AccessDeniedException::class to FORBIDDEN,
++)
++
++private fun Map<KClass<out Exception>, ErrorType>.findErrorType(kClass: KClass<out Exception>) =
++    entries.firstOrNull { kClass.isSubclassOf(it.key) }?.value
++
++
++@RestControllerAdvice
++class RestExceptionHandler(
++    private val messageSource: MessageSource
++
++) {
++    private val log = KotlinLogging.logger {}
++
++    @ExceptionHandler(BindException::class)
++    fun bindException(ex: BindException, request: HttpServletRequest): ProblemDetail {
++        val invalidParams = ex.bindingResult.getErrorMap(messageSource)
++        val path = request.requestURI
++        log.warn { "$ERR_PFX BindException with invalidParams $invalidParams at request $path" }
++        return createProblemDetail(
++            ex = ex,
++            path = path,
++            type = BAD_REQUEST,
++            defaultDetail = "BindException",
++            additionalParams = java.util.Map.of<String, Any>("invalid_params", invalidParams)
++        )
++    }
++
++    @ExceptionHandler(Exception::class)
++    fun exception(ex: Exception, request: HttpServletRequest): ProblemDetail = processException(ex, request, mapOf())
++
++    fun processException(
++        ex: Exception, request: HttpServletRequest, additionalParams: Map<String, Any>
++    ): ProblemDetail {
++        val path = request.requestURI
++        val errorType = HTTP_STATUS_MAP.findErrorType(ex::class)
++        return if (errorType != null) {
++            log.error { "$ERR_PFX Exception $ex at request $path" }
++            createProblemDetail(ex, path, errorType, ex.message!!, additionalParams)
++        } else {
++            val root = ex.getRootCause()
++            log.error(root) { "$ERR_PFX Exception $root at request $path" }
++            createProblemDetail(ex, path, APP_ERROR, "Exception ${root.javaClass.simpleName}", additionalParams)
++        }
++    }
++
++    //    https://datatracker.ietf.org/doc/html/rfc7807
++    private fun createProblemDetail(
++        ex: Exception,
++        path: String,
++        type: ErrorType,
++        defaultDetail: String,
++        additionalParams: Map<String, Any>
++    ): ProblemDetail = ErrorResponse.builder(ex, type.status, defaultDetail)
++        .title(type.title)
++        .instance(URI.create(path))
++        .build()
++        .updateAndGetBody(messageSource, LocaleContextHolder.getLocale())
++        .apply {
++            additionalParams.forEach { (name: String, value: Any) -> this.setProperty(name, value) }
++        }
++}
+Index: src/main/kotlin/ru/javaops/topkotlin/config/SecurityConfig.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/config/SecurityConfig.kt b/src/main/kotlin/ru/javaops/topkotlin/config/SecurityConfig.kt
+new file mode 100644
+--- /dev/null	(date 1701184533916)
++++ b/src/main/kotlin/ru/javaops/topkotlin/config/SecurityConfig.kt	(date 1701184533916)
+@@ -0,0 +1,61 @@
++package ru.javaops.topkotlin.config
++
++import io.github.oshai.kotlinlogging.KotlinLogging
++import org.springframework.context.annotation.Bean
++import org.springframework.context.annotation.Configuration
++import org.springframework.http.HttpMethod
++import org.springframework.security.config.annotation.web.builders.HttpSecurity
++import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
++import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer
++import org.springframework.security.config.http.SessionCreationPolicy
++import org.springframework.security.core.userdetails.UserDetailsService
++import org.springframework.security.core.userdetails.UsernameNotFoundException
++import org.springframework.security.crypto.factory.PasswordEncoderFactories
++import org.springframework.security.crypto.password.PasswordEncoder
++import org.springframework.security.web.SecurityFilterChain
++import ru.javaops.topkotlin.model.Role
++import ru.javaops.topkotlin.repository.UserRepository
++import ru.javaops.topkotlin.web.AuthUser
++
++val PASSWORD_ENCODER: PasswordEncoder = PasswordEncoderFactories.createDelegatingPasswordEncoder()
++
++@Configuration
++@EnableWebSecurity
++class SecurityConfig(
++    private val userRepository: UserRepository,
++    private val authenticationEntryPoint: RestAuthenticationEntryPoint
++
++) {
++    private val log = KotlinLogging.logger {}
++
++    @Bean
++    fun passwordEncoder() = PASSWORD_ENCODER
++
++    @Bean
++    fun userDetailsService() = UserDetailsService { email ->
++        log.debug { "Authenticating '$email'" }
++        AuthUser(
++            userRepository.findByEmailIgnoreCase(email) ?: throw UsernameNotFoundException("User '$email' was not found")
++        )
++    }
++
++    //  https://stackoverflow.com/a/61147599/548473
++    @Bean
++    fun webSecurityCustomizer() =
++        WebSecurityCustomizer { web -> web.ignoring().requestMatchers("/", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**") }
++
++    //https://stackoverflow.com/a/76538979/548473
++    @Bean
++    fun filterChain(http: HttpSecurity): SecurityFilterChain {
++        http.securityMatcher("/api/**")
++            .authorizeHttpRequests { ahrc ->
++                ahrc.requestMatchers("/api/admin/**").hasRole(Role.ADMIN.name)
++                    .requestMatchers(HttpMethod.POST, "/api/profile").anonymous()
++                    .requestMatchers("/api/**").authenticated()
++            }
++            .httpBasic { hbc -> hbc.authenticationEntryPoint(authenticationEntryPoint) }
++            .sessionManagement { smc -> smc.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
++            .csrf { obj -> obj.disable() }
++        return http.build()
++    }
++}
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/Extensions.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/Extensions.kt b/src/main/kotlin/ru/javaops/topkotlin/Extensions.kt
+new file mode 100644
+--- /dev/null	(date 1701184533925)
++++ b/src/main/kotlin/ru/javaops/topkotlin/Extensions.kt	(date 1701184533925)
+@@ -0,0 +1,5 @@
++package ru.javaops.topkotlin
++
++import org.springframework.core.NestedExceptionUtils
++
++fun Throwable.getRootCause(): Throwable = NestedExceptionUtils.getRootCause(this) ?: this
+\ No newline at end of file
+Index: src/main/kotlin/ru/javaops/topkotlin/repository/UserRepository.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/kotlin/ru/javaops/topkotlin/repository/UserRepository.kt b/src/main/kotlin/ru/javaops/topkotlin/repository/UserRepository.kt
+--- a/src/main/kotlin/ru/javaops/topkotlin/repository/UserRepository.kt	(revision 8175f3452308317f340ce4711b66194f2000f834)
++++ b/src/main/kotlin/ru/javaops/topkotlin/repository/UserRepository.kt	(date 1701184533921)
+@@ -2,6 +2,7 @@
+ 
+ import org.springframework.data.jpa.repository.Query
+ import org.springframework.transaction.annotation.Transactional
++import ru.javaops.topkotlin.config.PASSWORD_ENCODER
+ import ru.javaops.topkotlin.error.NotFoundException
+ import ru.javaops.topkotlin.model.User
+ import java.util.*
+@@ -13,7 +14,7 @@
+ 
+     @Transactional
+     fun prepareAndSave(user: User): User = with(user) {
+-//        password = PASSWORD_ENCODER.encode(password)
++        password = PASSWORD_ENCODER.encode(password)
+         email = email.lowercase()
+         save(this)
+     }
